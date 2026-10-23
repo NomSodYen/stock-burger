@@ -594,15 +594,13 @@ const DEFAULTS = {
     { id: 'V004', name: 'Pickle',            nameTh: 'แตงกวาดอง',              cat: 'V', unit: 'g',    img: 'art:pickle',  min: 300, par: 1000, cost: 0.15, note: '' },
     { id: 'P001', name: 'EatInBox',          nameTh: 'กล่องทานที่ร้าน',          cat: 'P', unit: 'item', img: 'art:box',     min: 50,  par: 150,  cost: 2.5,  note: '' },
     { id: 'P002', name: 'TakeHomeBox',       nameTh: 'กล่องกลับบ้าน',           cat: 'P', unit: 'item', img: 'art:takebox', min: 50,  par: 150,  cost: 3.5,  note: '' },
-    { id: 'P003', name: 'EatInBox (Large)',  nameTh: 'กล่องทานที่ร้าน (ใหญ่)',   cat: 'P', unit: 'item', img: 'art:bigbox',  min: 30,  par: 100,  cost: 4.5,  note: '' },
   ].map((x, i) => ({ ...x, est: true, archived: false, order: i })),
   menus: [
     { id: 'M001', name: 'Beef Smash Burger',          group: 'burger', price: 0, recipe: { B001: 1, B003: 1, V001: 15, V002: 0.2, V003: 0.1,  V004: 10 } },
     { id: 'M002', name: 'Double Beef Smash Burger',   group: 'burger', price: 0, recipe: { B001: 2, B003: 1, V001: 20, V002: 0.2, V003: 0.15, V004: 15 } },
     { id: 'M003', name: 'Pork Smash Burger',          group: 'burger', price: 0, recipe: { B002: 1, B003: 1, V001: 15, V002: 0.2, V003: 0.1,  V004: 10 } },
     { id: 'M004', name: 'Double Pork Smash Burger',   group: 'burger', price: 0, recipe: { B002: 2, B003: 1, V001: 20, V002: 0.2, V003: 0.15, V004: 15 } },
-    { id: 'M101', name: 'ทานที่ร้าน (กล่องเล็ก)',      group: 'pack',   price: 0, recipe: { P001: 1 } },
-    { id: 'M102', name: 'ทานที่ร้าน (กล่องใหญ่)',      group: 'pack',   price: 0, recipe: { P003: 1 } },
+    { id: 'M101', name: 'ทานที่ร้าน',                  group: 'pack',   price: 0, recipe: { P001: 1 } },
     { id: 'M103', name: 'กลับบ้าน',                    group: 'pack',   price: 0, recipe: { P002: 1 } },
   ].map((x, i) => ({ ...x, sample: true, archived: false, order: i })),
   settings: { tolerancePct: 3, seeded: true },
@@ -669,12 +667,6 @@ const ART = (() => {
     <rect x="52" y="84" width="136" height="4" fill="#a97d42" opacity=".6"/>
     <rect x="100" y="94" width="40" height="30" rx="5" fill="#f7ecd9" opacity=".0"/>
     ${boxLabel('EAT IN')}`);
-  const bigbox = svg('#f3e5ce', `
-    <ellipse cx="120" cy="154" rx="86" ry="8" fill="#000" opacity=".1"/>
-    <rect x="38" y="58" width="164" height="92" rx="9" fill="#c99a5b"/>
-    <path d="M38 68Q38 36 72 36H168Q202 36 202 68V82H38Z" fill="#dcb274"/>
-    <rect x="38" y="82" width="164" height="4" fill="#a97d42" opacity=".6"/>
-    <text x="120" y="122" text-anchor="middle" font-family="Kanit,Arial,sans-serif" font-weight="700" font-size="17" fill="#5a3d1b" letter-spacing="1">EAT IN · L</text>`);
   const takebox = svg('#f3e5ce', `
     <ellipse cx="120" cy="154" rx="70" ry="8" fill="#000" opacity=".1"/>
     <path d="M86 70C86 34 154 34 154 70" fill="none" stroke="#8e6a3a" stroke-width="7" stroke-linecap="round"/>
@@ -739,7 +731,7 @@ const ART = (() => {
     <path d="M66 96C66 66 90 46 118 44C98 54 84 72 82 100Z" fill="#fff" opacity=".2"/>
     ${seeds}`);
 
-  return { lettuce, tomato, onion, pickle, box, bigbox, takebox, generic, beef, pork, bun };
+  return { lettuce, tomato, onion, pickle, box, takebox, generic, beef, pork, bun };
 })();
 
 'use strict';
@@ -1025,6 +1017,27 @@ function applySales(date, sales) {
   return touched;
 }
 function saveSettings(patch) { if (!writable()) return; S.settings = { ...S.settings, ...patch }; S.ver++; persist('settings', 'main'); }
+// The shop stopped using the large eat-in box (P003). Take it out of data saved
+// before that: archive it if it has count history so reports keep it, otherwise
+// delete it, and drop it from every recipe. Runs once per device.
+function retireBigBox() {
+  if (lsGet('sb.mig.bigbox') === '1') return;
+  const big = S.ingredients.P003;
+  if (big && !big.archived) {
+    if (hasHistory('P003')) S.ingredients.P003 = { ...big, archived: true };
+    else delete S.ingredients.P003;
+    persist('ingredients', 'P003');
+  }
+  for (const m of Object.values(S.menus)) {
+    const r = m.recipe || {};
+    if (m.id === 'M102' && Object.keys(r).every(k => k === 'P003')) { delete S.menus[m.id]; persist('menus', m.id); continue; }
+    if (r.P003 == null && !(m.id === 'M101' && m.name === 'ทานที่ร้าน (กล่องเล็ก)')) continue;
+    const recipe = { ...r }; delete recipe.P003;
+    S.menus[m.id] = { ...m, recipe, name: m.id === 'M101' && m.name === 'ทานที่ร้าน (กล่องเล็ก)' ? 'ทานที่ร้าน' : m.name };
+    persist('menus', m.id);
+  }
+  S.ver++; lsSet('sb.mig.bigbox', '1');
+}
 function seedDefaults() {
   if (!writable()) return;
   let added = 0;
@@ -1077,7 +1090,7 @@ function lastCountDate() {
 }
 function emptyCatalog(msg) {
   return `<div class="empty"><img class="art" src="${ART.generic}" alt=""><b>${esc(msg)}</b>
-    <span>ใส่ 10 รายการเริ่มต้นจากแอปเดิม (เนื้อ หมู ขนมปัง ผัก กล่อง) แล้วแก้ทีหลังได้</span>
+    <span>ใส่ 9 รายการเริ่มต้นจากแอปเดิม (เนื้อ หมู ขนมปัง ผัก กล่อง) แล้วแก้ทีหลังได้</span>
     <button class="btn" data-act="seed">ใส่วัตถุดิบเริ่มต้น</button></div>`;
 }
 
@@ -1180,7 +1193,7 @@ function viewCount() {
   if (!all.length) return emptyCatalog('ยังไม่มีวัตถุดิบให้นับ');
   const rows = {}; all.forEach(i => rows[i.id] = rowFor(i.id, date));
   const counted = all.filter(i => rows[i.id].actual != null).length;
-  const list = all.filter(i => S.filter === 'all' || i.cat === S.filter);
+  const list = all.filter(i => S.filter === 'all' || (S.filter === 'todo' ? rows[i.id].actual == null || S.openId === i.id : i.cat === S.filter));
   const sales = S.days[date]?.sales || {};
   const sold = Object.entries(sales).filter(([k]) => S.menus[k]?.group === 'burger').reduce((s, [, q]) => s + n0(q), 0);
   const hasSales = Object.keys(sales).length > 0;
@@ -1199,8 +1212,9 @@ function viewCount() {
     <span class="cap">${hasSales ? `ขายเบอร์เกอร์ ${fmt(sold)} ชิ้น · ตัดสต็อกให้อัตโนมัติ` : 'กรอกจำนวนที่ขาย แอปคำนวณ “POS ตัดขาย” ของทุกวัตถุดิบให้'}</span>
   </div>
   <div class="chips" role="group" aria-label="กรองหมวด">
-    ${[['all', 'ทั้งหมด'], ['B', CATS.B], ['V', CATS.V], ['P', CATS.P]].map(([k, l]) => `<button class="chip" data-act="filter" data-v="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join('')}
+    ${[['all', 'ทั้งหมด'], ['todo', 'ยังไม่นับ (' + (all.length - counted) + ')'], ['B', CATS.B], ['V', CATS.V], ['P', CATS.P]].map(([k, l]) => `<button class="chip" data-act="filter" data-v="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join('')}
   </div>
+  ${S.filter === 'todo' && !list.length ? `<div class="empty"><b>นับครบทุกรายการแล้ว</b><span>กด “ทั้งหมด” เพื่อดูหรือแก้ตัวเลข</span></div>` : ''}
   <div class="cards">${list.map(i => `<article class="icard ${S.openId === i.id ? 'open' : ''}" data-card="${esc(i.id)}">${cardHead(i, rows[i.id], S.openId === i.id)}${S.openId === i.id ? cardBody(i, rows[i.id]) : ''}</article>`).join('')}</div>`;
 }
 
@@ -1634,7 +1648,7 @@ function openSettings() {
   ${PWA ? `<p class="cap" style="margin:-6px 0 0">${daysSinceBackup() === null ? 'ยังไม่เคยสำรองข้อมูลจากเครื่องนี้' : daysSinceBackup() === 0 ? 'สำรองล่าสุด: วันนี้' : 'สำรองล่าสุด: ' + daysSinceBackup() + ' วันก่อน'}</p>` : ''}
   ${Store.mode === 'local' ? `<button class="btn ghost block" id="t-import" type="button">${ICON.down} นำเข้าข้อมูลสำรอง (JSON)</button><input type="file" id="t-file" accept="application/json,.json" hidden>` : ''}
   <button class="btn ghost block" id="t-seed">ใส่วัตถุดิบและสูตรเริ่มต้นที่ยังไม่มี</button>
-  <p class="cap">วัตถุดิบเริ่มต้น 10 รายการนำมาจากแอปเดิม ส่วนชื่อไทย ต้นทุน ระดับขั้นต่ำ และสูตรเมนูเป็นค่าประมาณที่แก้ได้ทั้งหมด</p>`, sh => {
+  <p class="cap">วัตถุดิบเริ่มต้น 9 รายการนำมาจากแอปเดิม ส่วนชื่อไทย ต้นทุน ระดับขั้นต่ำ และสูตรเมนูเป็นค่าประมาณที่แก้ได้ทั้งหมด</p>`, sh => {
     $('#t-save', sh).addEventListener('click', () => { const v = parseNum($('#t-tol', sh).value); if (v == null || v < 0) { toast('ใส่ตัวเลข 0 ขึ้นไป'); return; } saveSettings({ tolerancePct: v }); render(); toast('บันทึกแล้ว'); });
     $('#t-csv', sh).addEventListener('click', () => saveFile('stock-burger-' + todayKey() + '.csv', buildCSV(), 'ส่งออก CSV'));
     $('#t-json', sh).addEventListener('click', () => backupNow());
@@ -1650,7 +1664,7 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   const a = el.dataset.act, id = el.dataset.id;
   switch (a) {
-    case 'tab': S.tab = el.dataset.tab; if (S.tab !== 'ing') S.q = ''; if (S.tab === 'ing') S.filter = 'all'; render(); break;
+    case 'tab': S.tab = el.dataset.tab; if (S.tab !== 'ing') S.q = ''; S.filter = 'all'; render(); break;
     case 'subtab': S.sub = el.dataset.v; render(); break;
     case 'close-sheet': closeSheet(); break;
     case 'toggle': S.openId = S.openId === id ? null : id; render(); if (S.openId) { const c = $(`[data-card="${CSS.escape(id)}"]`); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); } break;
@@ -1726,6 +1740,7 @@ function startLocal() {
     S.settings = { ...S.settings, ...clone(DEFAULTS.settings) };
     lsSave();
   }
+  retireBigBox();
   S.ver++; S.ready = true; render();
 }
 function startCloud(db, canWrite) {
@@ -1744,6 +1759,12 @@ function startCloud(db, canWrite) {
     S.ver++; done('settings'); scheduleRender();
   }, bad);
   setTimeout(() => { if (!S.ready) { S.ready = true; scheduleRender(); } }, 8000);
+}
+let shownToday = todayKey();
+function rollDay() {
+  const t = todayKey(); if (t === shownToday) return;
+  if (S.date === shownToday) { S.date = t; S.openId = null; }
+  shownToday = t; if (!typing()) render(); else deferred = true;
 }
 function startPWA() {
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); inst.ev = e; render(); });
@@ -1766,6 +1787,8 @@ async function boot() {
     startCloud(db, can);
   } else startLocal();
   if (PWA && Store.mode === 'local') syncStart();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) rollDay(); });
+  setInterval(rollDay, 60000);
   updateSync();
 }
 boot();
