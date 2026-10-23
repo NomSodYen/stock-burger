@@ -1,5 +1,5 @@
 /* Service worker ของ Stock Burger: ทำให้เปิดแอปได้แม้อินเทอร์เน็ตหลุด */
-var CACHE = 'stock-burger-v2';
+var CACHE = 'stock-burger-v3';
 var CORE = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
 var FONT_CSS = 'https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600&display=swap';
 

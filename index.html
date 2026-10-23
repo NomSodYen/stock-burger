@@ -1209,6 +1209,7 @@ function viewCount() {
   </div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <button class="btn soft sm" data-act="sales">${ICON.tag} ${hasSales ? 'แก้ยอดขาย POS' : 'กรอกยอดขาย POS'}</button>
+    <button class="btn soft sm" data-act="receive">${ICON.cart} รับของเข้า</button>
     <span class="cap">${hasSales ? `ขายเบอร์เกอร์ ${fmt(sold)} ชิ้น · ตัดสต็อกให้อัตโนมัติ` : 'กรอกจำนวนที่ขาย แอปคำนวณ “POS ตัดขาย” ของทุกวัตถุดิบให้'}</span>
   </div>
   <div class="chips" role="group" aria-label="กรองหมวด">
@@ -1564,6 +1565,41 @@ function openSalesSheet() {
   });
 }
 
+// Receiving a delivery: every active ingredient, pre-filled with the suggested
+// order quantity for the low ones. The amounts are added to that day's "รับเข้า".
+function openReceiveSheet(date) {
+  if (!writable()) return;
+  const ings = ingList();
+  if (!ings.length) { toast('ยังไม่มีวัตถุดิบ'); return; }
+  const low = new Map(lowList().map(({ i, lv }) => [i.id, orderQty(i, lv)]));
+  const qty = {}; for (const [id, q] of low) if (q > 0) qty[id] = q;
+  const list = ings.slice().sort((a, b) => (low.has(b.id) ? 1 : 0) - (low.has(a.id) ? 1 : 0));
+  const recNow = id => n0(S.days[date]?.entries?.[id]?.rec);
+  const dayWord = date === todayKey() ? 'วันนี้' : 'วันนั้น';
+  const html = `${shHead('รับของเข้า')}
+  <p class="muted" style="font-size:14px">${esc(dFull(date))}<br>${low.size ? 'ใส่จำนวนตามรายการสั่งไว้ให้แล้ว แก้ให้ตรงกับของที่มาส่งจริง' : 'กรอกจำนวนของที่รับเข้ามา'} จำนวนนี้จะบวกเข้าช่อง “รับเข้า” ของ${dayWord}</p>
+  <div class="rows">${list.map(i => `<div class="row">${imgTag(i, 'thumb sm')}<div class="grow"><div class="t">${esc(dispName(i))}</div><div class="cap">${low.has(i.id) ? 'ตามรายการสั่ง' : uLabel(i)}${recNow(i.id) ? ' · รับแล้ว' + dayWord + ' ' + fmt(recNow(i.id)) + ' ' + uLabel(i) : ''}</div></div><div style="width:150px"><div class="stepper"><button type="button" data-r="${esc(i.id)}" data-dir="-1" aria-label="ลด ${esc(dispName(i))}">−</button><input class="r-in" data-r="${esc(i.id)}" inputmode="decimal" aria-label="${esc(dispName(i))}" value="${qty[i.id] ? numStr(qty[i.id]) : ''}" placeholder="0"><button type="button" data-r="${esc(i.id)}" data-dir="1" aria-label="เพิ่ม ${esc(dispName(i))}">+</button></div></div></div>`).join('')}</div>
+  <div class="actions"><button type="button" class="btn ghost" data-act="close-sheet">ยกเลิก</button><button type="button" class="btn" id="r-ok">บันทึกรับของ</button></div>`;
+  openSheet(html, sh => {
+    sh.addEventListener('click', e => {
+      const b = e.target.closest('button[data-r]'); if (!b) return;
+      const id = b.dataset.r, nv = Math.max(0, r3(n0(qty[id]) + Number(b.dataset.dir) * stepOf(S.ingredients[id])));
+      if (nv) qty[id] = nv; else delete qty[id];
+      $(`.r-in[data-r="${CSS.escape(id)}"]`, sh).value = nv ? numStr(nv) : '';
+    });
+    sh.addEventListener('input', e => {
+      const inp = e.target.closest('.r-in'); if (!inp) return;
+      const v = parseNum(inp.value);
+      if (v > 0) qty[inp.dataset.r] = v; else delete qty[inp.dataset.r];
+    });
+    $('#r-ok', sh).addEventListener('click', () => {
+      let n = 0;
+      for (const id in qty) if (qty[id] > 0 && patchEntry(date, id, { rec: r3(recNow(id) + qty[id]) })) n++;
+      closeSheet(true); render();
+      toast(n ? 'บันทึกรับของ ' + n + ' รายการแล้ว' : 'ยังไม่ได้ใส่จำนวน');
+    });
+  });
+}
 function orderText() {
   const low = lowList();
   const lines = low.map(({ i, lv }) => `• ${dispName(i)}${subName(i) ? ' (' + subName(i) + ')' : ''}: ${fmt(orderQty(i, lv))} ${uLabel(i)}  (เหลือ ${fmt(lv)})`);
@@ -1579,7 +1615,9 @@ function openOrderSheet() {
   if (!low.length) { toast('ตอนนี้ไม่มีรายการที่ต้องสั่ง'); return; }
   const text = orderText();
   openSheet(`${shHead('รายการสั่งของ')}<p class="muted" style="font-size:14px">สั่งให้ถึงระดับที่ควรมี ปัดขึ้นตามหน่วยของแต่ละรายการ</p><div class="pre" id="o-pre">${esc(text)}</div>
-    <div class="actions">${navigator.share ? '<button class="btn" id="o-share">แชร์ (ไลน์ ฯลฯ)</button>' : ''}<button class="btn ${navigator.share ? 'ghost' : ''}" id="o-copy">${ICON.copy} คัดลอกส่งไลน์</button></div>`, sh => {
+    <div class="actions">${navigator.share ? '<button class="btn" id="o-share">แชร์ (ไลน์ ฯลฯ)</button>' : ''}<button class="btn ${navigator.share ? 'ghost' : ''}" id="o-copy">${ICON.copy} คัดลอกส่งไลน์</button></div>
+    <button class="btn soft block" id="o-recv">${ICON.check} ของมาส่งแล้ว: รับของตามรายการนี้</button>`, sh => {
+    $('#o-recv', sh).addEventListener('click', () => openReceiveSheet(todayKey()));
     $('#o-copy', sh).addEventListener('click', () => copyText(text, $('#o-pre', sh)));
     const sb = $('#o-share', sh); if (sb) sb.addEventListener('click', async () => { try { await navigator.share({ title: 'รายการสั่งของ', text }); } catch { } });
   });
@@ -1688,6 +1726,7 @@ document.addEventListener('click', e => {
       break;
     }
     case 'sales': openSalesSheet(); break;
+    case 'receive': openReceiveSheet(S.date); break;
     case 'order': openOrderSheet(); break;
     case 'open-ing': openIngSheet(id); break;
     case 'new-ing': openIngSheet(null); break;
